@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dh-rto-example"
+version = "0.1.0"
+description = "Simulation of a real time optimization (RTO) algorithm for a district heating system with a gas boiler, heat pump, and thermal storage tank."
+requires-python = ">=3.11"
+authors = [
+    { name = "Bill Tubbs", email = "bill.tubbs@me.com" }
+]
+dependencies = [
+    "ipython",
+    "jupyter",
+    "numpy",
+    "matplotlib",
+    "pandas",
+    "pyyaml",
+    "oemof.solph",
+]
