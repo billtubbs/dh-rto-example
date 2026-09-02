@@ -36,10 +36,6 @@ possible demand by utilizing the storage tank whenever there is a future require
 
 This repo uses a conda environment (`environment.yaml`) to install Python plus the CBC solver, and `pyproject.toml` to declare the Python package dependencies.
 
-## Installation
-
-This repo uses a conda environment (`environment.yaml`) to install Python plus the CBC solver, and `pyproject.toml` to declare the Python package dependencies.
-
 1. Create the environment:
    ```
    conda env create -f environment.yaml -n dh-rto
