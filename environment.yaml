@@ -11,4 +11,5 @@ dependencies:
       - numpy
       - matplotlib
       - pandas
+      - pyomo
       - pyyaml
