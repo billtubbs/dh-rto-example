@@ -12,23 +12,25 @@ Course page: https://phd.moodle.aau.dk/blocks/vitrina/detail.php?id=2974
 
 ## Scenarios
 
-This repository compares two ways of operating the same district heating system over a period that
-includes an unexpected cold snap in January:
+Two scenarios are simulated and compared:
 
-- **Perfect foresight** -- a single optimization solved once over the entire simulated period, with
-  full knowledge of the actual future heat demand, gas price, and electricity price. This isn't
-  achievable in real operation; it's a theoretical best-case benchmark to measure a realistic
-  strategy against.
+- **Perfect foresight** -- a single optimization is performed once over the entire simulated period,
+  with full knowledge of the actual heat demand, gas price, and electricity price at all times. This
+  wouldn't be achievable in a real operation because the future is uncertain. However, this approach
+  was used to determine the sizing of the energy system components (gas-fired boiler, heat pump and
+  thermal storage tank).
 - **RTO with a moving (rolling) horizon** -- a realistic hourly dispatch strategy that re-solves the
-  optimization every hour using real data for a short lookahead (24 hours) followed by a simple
-  repeating forecast for the remainder of a 48-hour planning window, then implements only the
-  decision for the current hour before moving on. This mimics how an automated RTO system would
-  actually operate, with no knowledge of demand beyond its planning horizon.
+  optimization every hour using accurate forecast data for a 24 hour lookahead, followed by a simple
+  repeating daily profile for the remainder of the 48-hour prediction horizon, then implements only the
+  decision for the current hour before repeating the optimization in the next hourly time step. This
+  mimics how an actual RTO system might operate, with imperfect knowledge of future demand and prices.
 
-Comparing the two shows the value of foresight: the perfect-foresight case sees the cold snap coming
-days in advance and pre-charges the thermal storage accordingly, while the RTO case -- unable to see
-that far ahead -- enters the cold snap with a nearly depleted reserve and fails to fully meet demand
-for part of the event.
+The input data is hourly heating demand, electricity price, and gas price over a period of time that
+includes an unexpected three-day cold snap when the demand for heating is unusually high.
+
+Comparing the two shows the effect of assuming perfect foresight during the system design: perfect 
+foresight allows it to make the capacity of the gas boiler and heat pump smaller than the maximum
+possible demand by utilizing the storage tank whenever there is a future requirement for more heat.
 
 ## Installation
 
