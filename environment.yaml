@@ -1,0 +1,14 @@
+name: mod-build
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - coincbc
+  - pip
+  - pip:
+      - ipython
+      - jupyter
+      - numpy
+      - matplotlib
+      - pandas
+      - pyyaml
