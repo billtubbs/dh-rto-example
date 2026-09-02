@@ -10,6 +10,26 @@ The district heating system sizing is based on the oemof.solph example used in t
 
 Course page: https://phd.moodle.aau.dk/blocks/vitrina/detail.php?id=2974
 
+## Scenarios
+
+This repository compares two ways of operating the same district heating system over a period that
+includes an unexpected cold snap in January:
+
+- **Perfect foresight** -- a single optimization solved once over the entire simulated period, with
+  full knowledge of the actual future heat demand, gas price, and electricity price. This isn't
+  achievable in real operation; it's a theoretical best-case benchmark to measure a realistic
+  strategy against.
+- **RTO with a moving (rolling) horizon** -- a realistic hourly dispatch strategy that re-solves the
+  optimization every hour using real data for a short lookahead (24 hours) followed by a simple
+  repeating forecast for the remainder of a 48-hour planning window, then implements only the
+  decision for the current hour before moving on. This mimics how an automated RTO system would
+  actually operate, with no knowledge of demand beyond its planning horizon.
+
+Comparing the two shows the value of foresight: the perfect-foresight case sees the cold snap coming
+days in advance and pre-charges the thermal storage accordingly, while the RTO case -- unable to see
+that far ahead -- enters the cold snap with a nearly depleted reserve and fails to fully meet demand
+for part of the event.
+
 ## Installation
 
 This repo uses a conda environment (`environment.yaml`) to install Python plus the CBC solver, and `pyproject.toml` to declare the Python package dependencies.

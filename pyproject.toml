@@ -18,4 +18,6 @@ dependencies = [
     "pandas",
     "pyyaml",
     "oemof.solph",
+    "pyomo",
+    "tqdm",
 ]

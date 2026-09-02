@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 import pyomo.environ as po
-from oemof import solph
+import oemof.solph as solph
 from tqdm import tqdm
 
 DATA_DIR = Path("data")
@@ -47,12 +47,25 @@ def _build_and_solve(
     cap_storage,
     co2_price,
     max_heat_demand,
+    final_storage_level=None,
+    balanced=False,
 ):
     """Build and solve one dispatch LP for the given data window (already
     real or forecast, as the caller prefers). Returns (dispatch_df,
     storage_content_list). Direct pyomo variable extraction, not oemof's
     solph.processing.results() (which has a separate, confirmed bug in
     grouping storage_content -- reported separately).
+
+    storage_level: fraction to fix the INITIAL storage to, or None to
+    leave it free (requires balanced=True, matching how the original
+    full-year capacity-sizing run picked its own optimal boundary).
+    final_storage_level: fraction to fix the FINAL storage_content to via
+    .fix() (the same mechanism oemof itself uses for storage_level), or
+    None to leave the ending free. Deliberately NOT implemented as an
+    inequality Constraint: a genuinely-binding inequality Constraint on
+    storage_content is what triggered a separate, confirmed CBC/pyomo
+    solution-loading bug (reported separately) -- .fix() was verified not
+    to trigger it.
     """
     n = len(window) - 1
     gas_cost = (window["gas price"] + co2_price * CO2_GAS).iloc[:-1]
@@ -130,13 +143,18 @@ def _build_and_solve(
                 nominal_capacity=cap_storage / 24,
             )
         },
-        balanced=False,
+        balanced=balanced,
         loss_rate=STORAGE_LOSS_RATE,
         initial_storage_level=storage_level,
     )
     es.add(gas_boiler, heat_pump, storage)
 
     model = solph.Model(es)
+    if final_storage_level is not None:
+        model.GenericStorageBlock.storage_content[storage, n].fix(
+            final_storage_level * cap_storage
+        )
+
     solver = po.SolverFactory("cbc", solver_io="lp")
     result = solver.solve(model, tee=False)
     if str(result.solver.termination_condition) != "optimal":
@@ -242,6 +260,7 @@ def solve_perfect_foresight(
     cap_storage,
     co2_price,
     initial_storage_level,
+    final_storage_level=None,
 ):
     """Single solve over the whole period using real data throughout --
     the causal case's forecast uncertainty removed entirely. Same
@@ -256,11 +275,51 @@ def solve_perfect_foresight(
         cap_storage,
         co2_price,
         max_heat_demand,
+        final_storage_level=final_storage_level,
     )
     storage_series = pd.Series(
         storage_content, index=data.index, name="storage_content_mwh"
     )
     return dispatch, storage_series
+
+
+def discover_boundary_levels(
+    full_data,
+    cap_gas_boiler,
+    cap_heat_pump,
+    cap_storage,
+    co2_price,
+    window_start,
+    window_end,
+):
+    """Solve the FULL YEAR with a free, self-consistent boundary
+    (balanced=True, initial_storage_level=None -- the same convention the
+    original capacity-sizing run used) to discover the true optimal
+    storage trajectory, then read off its value at the given window's
+    start/end timestamps. Used so the reduced-window run's boundaries can
+    be pinned to match the true year-long-optimal solution exactly,
+    rather than an arbitrary guess.
+    """
+    max_heat_demand = full_data["heat demand"].max()
+    dispatch, storage_content = _build_and_solve(
+        full_data,
+        None,
+        cap_gas_boiler,
+        cap_heat_pump,
+        cap_storage,
+        co2_price,
+        max_heat_demand,
+        balanced=True,
+    )
+    storage_series = pd.Series(storage_content, index=full_data.index)
+    # .loc with a date-only string matches every hour of that date on an
+    # hourly index (partial-string indexing), not just midnight -- use an
+    # exact Timestamp to get a single scalar.
+    start_fraction = (
+        storage_series.loc[pd.Timestamp(window_start)] / cap_storage
+    )
+    end_fraction = storage_series.loc[pd.Timestamp(window_end)] / cap_storage
+    return start_fraction, end_fraction
 
 
 def run_rto(
@@ -315,8 +374,22 @@ if __name__ == "__main__":
     data_full = pd.read_csv(
         DATA_DIR / "input_data.csv", sep=";", index_col=0, parse_dates=True
     )
-    data = data_full.loc["2019-01-12":"2019-02-03"]
-    initial_storage_level = 0.5
+    WINDOW_START = "2019-01-12"
+    WINDOW_END = "2019-02-03"
+    data = data_full.loc[WINDOW_START:WINDOW_END]
+
+    initial_storage_level, final_storage_level = discover_boundary_levels(
+        data_full,
+        CAP_GAS_BOILER_MW,
+        CAP_HEAT_PUMP_MW,
+        CAP_STORAGE_MWH,
+        CO2_PRICE,
+        WINDOW_START,
+        WINDOW_END,
+    )
+    print(
+        f"True boundary levels (from full-year solve): initial={initial_storage_level:.6f}, final={final_storage_level:.6f}"
+    )
 
     dispatch_rto, storage_rto = run_rto(
         data,
@@ -339,6 +412,7 @@ if __name__ == "__main__":
         CAP_STORAGE_MWH,
         CO2_PRICE,
         initial_storage_level,
+        final_storage_level=final_storage_level,
     )
     dispatch_pf.to_csv(RESULTS_DIR / "perfect_foresight_dispatch.csv")
     storage_pf.to_csv(RESULTS_DIR / "perfect_foresight_storage.csv")
