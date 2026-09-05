@@ -19,5 +19,6 @@ dependencies = [
     "pyyaml",
     "oemof.solph",
     "pyomo",
+    "scikit-optimize",
     "tqdm",
 ]

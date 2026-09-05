@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 import pyomo.environ as po
-import oemof.solph as solph
+from oemof import solph
 from tqdm import tqdm
 
 DATA_DIR = Path("data")
@@ -37,6 +37,9 @@ HORIZON = 48
 CONTROL_STEP = 1
 N_KNOWN = 24
 PATTERN_HOURS = 24
+
+WINDOW_START = "2019-01-12"
+WINDOW_END = "2019-02-03"
 
 
 def _build_and_solve(
@@ -156,7 +159,15 @@ def _build_and_solve(
         )
 
     solver = po.SolverFactory("cbc", solver_io="lp")
-    result = solver.solve(model, tee=False)
+    # primalTolerance loosened from CBC's default (1e-7): confirmed on
+    # Stack Overflow and independently verified here that when a solution
+    # sits almost exactly on the default tolerance boundary, CBC can
+    # report "optimal" while failing to write back a usable solution
+    # (some variables come back None despite success). A capacity search
+    # that tries many candidate values is more likely to stumble into
+    # this than a single hand-picked run, so this is applied as a
+    # standing default rather than a one-off fix.
+    result = solver.solve(model, tee=False, options={"primalTolerance": "1e-6"})
     if str(result.solver.termination_condition) != "optimal":
         raise RuntimeError(
             f"Not optimal for window starting {window.index[0]}: {result.solver.termination_condition}"
@@ -374,8 +385,6 @@ if __name__ == "__main__":
     data_full = pd.read_csv(
         DATA_DIR / "input_data.csv", sep=";", index_col=0, parse_dates=True
     )
-    WINDOW_START = "2019-01-12"
-    WINDOW_END = "2019-02-03"
     data = data_full.loc[WINDOW_START:WINDOW_END]
 
     initial_storage_level, final_storage_level = discover_boundary_levels(
