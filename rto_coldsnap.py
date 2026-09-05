@@ -167,7 +167,9 @@ def _build_and_solve(
     # that tries many candidate values is more likely to stumble into
     # this than a single hand-picked run, so this is applied as a
     # standing default rather than a one-off fix.
-    result = solver.solve(model, tee=False, options={"primalTolerance": "1e-6"})
+    result = solver.solve(
+        model, tee=False, options={"primalTolerance": "1e-6"}
+    )
     if str(result.solver.termination_condition) != "optimal":
         raise RuntimeError(
             f"Not optimal for window starting {window.index[0]}: {result.solver.termination_condition}"

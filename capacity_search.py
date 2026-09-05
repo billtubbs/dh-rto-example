@@ -34,7 +34,16 @@ import rto_coldsnap as rto
 RESULTS_DIR = rto.RESULTS_DIR
 CACHE_PATH = RESULTS_DIR / "capacity_search_cache.csv"
 
-CO2_PRICE = 20  # fixed dispatch price -- matches opt_step1.py's lambda=20 anchor
+CO2_PRICE = (
+    20  # fixed dispatch price -- matches opt_step1.py's lambda=20 anchor
+)
+
+# Target TOTAL number of purely-random points across all invocations of
+# this script (not per-run). n_initial_points is computed each run as
+# max(N_INITIAL - <points already cached>, 0), so once the cache holds
+# N_INITIAL points, every subsequent point -- in this run or a later one
+# -- is genuinely GP-guided rather than more random sampling.
+N_INITIAL = 10
 
 # Investment costs and annualization, from the original opt_step1.py sizing script.
 SPEC_INV_GAS_BOILER = 60_000  # EUR/MW
@@ -61,19 +70,32 @@ def epc(invest_cost, i=DISCOUNT_RATE, n=LIFETIME_YEARS):
     return invest_cost * af
 
 
-def evaluate_candidate(cap_gas_boiler, cap_heat_pump, cap_storage, data_full, data_window):
+def evaluate_candidate(
+    cap_gas_boiler, cap_heat_pump, cap_storage, data_full, data_window
+):
     """Run the RTO simulation for one candidate capacity set and compute
     daily-averaged cost and CO2 metrics. Returns a flat dict matching
     CACHE_COLUMNS.
     """
     initial_level, final_level = rto.discover_boundary_levels(
-        data_full, cap_gas_boiler, cap_heat_pump, cap_storage, CO2_PRICE,
-        rto.WINDOW_START, rto.WINDOW_END,
+        data_full,
+        cap_gas_boiler,
+        cap_heat_pump,
+        cap_storage,
+        CO2_PRICE,
+        rto.WINDOW_START,
+        rto.WINDOW_END,
     )
     dispatch, _storage = rto.run_rto(
-        data_window, cap_gas_boiler, cap_heat_pump, cap_storage, CO2_PRICE,
-        initial_storage_level=initial_level, horizon=rto.HORIZON,
-        control_step=rto.CONTROL_STEP, n_known=rto.N_KNOWN,
+        data_window,
+        cap_gas_boiler,
+        cap_heat_pump,
+        cap_storage,
+        CO2_PRICE,
+        initial_storage_level=initial_level,
+        horizon=rto.HORIZON,
+        control_step=rto.CONTROL_STEP,
+        n_known=rto.N_KNOWN,
     )
 
     window_days = len(dispatch) / 24
@@ -85,21 +107,23 @@ def evaluate_candidate(cap_gas_boiler, cap_heat_pump, cap_storage, data_full, da
     elec_consumed = dispatch["heat_pump"] / rto.COP
 
     fuel_cost = (
-        (data_window["gas price"].iloc[: len(dispatch)] * gas_consumed).sum()
-        + rto.VAR_COST_GAS_BOILER * dispatch["gas_boiler"].sum()
-    )
+        data_window["gas price"].iloc[: len(dispatch)] * gas_consumed
+    ).sum() + rto.VAR_COST_GAS_BOILER * dispatch["gas_boiler"].sum()
     elec_cost = (
-        (data_window["el_spot_price"].iloc[: len(dispatch)] * elec_consumed).sum()
-        + rto.VAR_COST_HEAT_PUMP * dispatch["heat_pump"].sum()
-    )
+        data_window["el_spot_price"].iloc[: len(dispatch)] * elec_consumed
+    ).sum() + rto.VAR_COST_HEAT_PUMP * dispatch["heat_pump"].sum()
     storage_cost = rto.VAR_COST_STORAGE * (
         dispatch["storage_charge"].sum() + dispatch["storage_discharge"].sum()
     )
     unserved_mwh = dispatch["unserved_heat"].sum()
     unserved_cost = rto.VOLL_COST_EUR_PER_MWH * unserved_mwh
 
-    operation_cost_window = fuel_cost + elec_cost + storage_cost + unserved_cost
-    co2_window = rto.CO2_GAS * gas_consumed.sum() + rto.CO2_EL * elec_consumed.sum()
+    operation_cost_window = (
+        fuel_cost + elec_cost + storage_cost + unserved_cost
+    )
+    co2_window = (
+        rto.CO2_GAS * gas_consumed.sum() + rto.CO2_EL * elec_consumed.sum()
+    )
 
     invest_cost = (
         SPEC_INV_GAS_BOILER * cap_gas_boiler
@@ -129,10 +153,14 @@ def load_cache():
 
 def append_cache(row):
     write_header = not CACHE_PATH.exists()
-    pd.DataFrame([row]).to_csv(CACHE_PATH, mode="a", header=write_header, index=False)
+    pd.DataFrame([row]).to_csv(
+        CACHE_PATH, mode="a", header=write_header, index=False
+    )
 
 
-def find_cached(cache_df, cap_gas_boiler, cap_heat_pump, cap_storage, tol=1e-9):
+def find_cached(
+    cache_df, cap_gas_boiler, cap_heat_pump, cap_storage, tol=1e-9
+):
     if len(cache_df) == 0:
         return None
     match = (
@@ -152,10 +180,14 @@ def make_objective(data_full, data_window, cache_df, metric="daily_cost"):
 
     def objective(x):
         cap_gas_boiler, cap_heat_pump, cap_storage = x
-        cached = find_cached(cache_df, cap_gas_boiler, cap_heat_pump, cap_storage)
+        cached = find_cached(
+            cache_df, cap_gas_boiler, cap_heat_pump, cap_storage
+        )
         if cached is not None:
             return float(cached[metric])
-        result = evaluate_candidate(cap_gas_boiler, cap_heat_pump, cap_storage, data_full, data_window)
+        result = evaluate_candidate(
+            cap_gas_boiler, cap_heat_pump, cap_storage, data_full, data_window
+        )
         append_cache(result)
         cache_df.loc[len(cache_df)] = result
         return result[metric]
@@ -177,19 +209,47 @@ if __name__ == "__main__":
     space = [
         Real(0.75 * rto.CAP_GAS_BOILER_MW, max_demand, name="cap_gas_boiler"),
         Real(0.75 * rto.CAP_HEAT_PUMP_MW, max_demand, name="cap_heat_pump"),
-        Real(0.75 * rto.CAP_STORAGE_MWH, 2.0 * rto.CAP_STORAGE_MWH, name="cap_storage"),
+        Real(
+            0.75 * rto.CAP_STORAGE_MWH,
+            2.0 * rto.CAP_STORAGE_MWH,
+            name="cap_storage",
+        ),
     ]
 
     cache_df = load_cache()
     print(f"Loaded {len(cache_df)} cached evaluation(s) from {CACHE_PATH}")
-    x0 = cache_df[["cap_gas_boiler", "cap_heat_pump", "cap_storage"]].values.tolist() or None
+    x0 = (
+        cache_df[
+            ["cap_gas_boiler", "cap_heat_pump", "cap_storage"]
+        ].values.tolist()
+        or None
+    )
     y0 = cache_df["daily_cost"].tolist() or None
 
-    objective = make_objective(data_full, data_window, cache_df, metric="daily_cost")
+    objective = make_objective(
+        data_full, data_window, cache_df, metric="daily_cost"
+    )
 
-    N_CALLS = 50  # new evaluations to run THIS invocation, on top of any cached ones
+    N_CALLS = (
+        50  # new evaluations to run THIS invocation, on top of any cached ones
+    )
+    n_initial_points = max(N_INITIAL - len(cache_df), 0)
+    # gp_minimize requires n_calls >= n_initial_points; if the cache
+    # already covers the full random-point budget and then some, this
+    # run is 100% GP-guided (n_initial_points=0), which is valid.
+    if n_initial_points > N_CALLS:
+        n_initial_points = N_CALLS
+    print(
+        f"n_initial_points this run: {n_initial_points} "
+        f"({len(cache_df)} of {N_INITIAL} target random points already cached)"
+    )
     result = gp_minimize(
-        objective, space, x0=x0, y0=y0, n_calls=N_CALLS, n_initial_points=10,
+        objective,
+        space,
+        x0=x0,
+        y0=y0,
+        n_calls=N_CALLS,
+        n_initial_points=n_initial_points,
         noise=1e-10,
         # No fixed random_state: with one, repeated invocations of this
         # script would deterministically regenerate the same "random"
@@ -200,8 +260,14 @@ if __name__ == "__main__":
     )
 
     print(f"\nBest daily cost found: {result.fun:.2f} EUR/day")
-    print(f"At capacities: gas_boiler={result.x[0]:.3f} MW, heat_pump={result.x[1]:.3f} MW, storage={result.x[2]:.3f} MWh")
+    print(
+        f"At capacities: gas_boiler={result.x[0]:.3f} MW, heat_pump={result.x[1]:.3f} MW, storage={result.x[2]:.3f} MWh"
+    )
     best_cached = find_cached(cache_df, *result.x)
     if best_cached is not None:
-        print(f"Daily CO2: {best_cached['daily_co2']:.3f} tCO2/day, unserved heat: {best_cached['unserved_heat_mwh']:.4f} MWh")
-    print(f"\nFull evaluation history (including cached points) in {CACHE_PATH}")
+        print(
+            f"Daily CO2: {best_cached['daily_co2']:.3f} tCO2/day, unserved heat: {best_cached['unserved_heat_mwh']:.4f} MWh"
+        )
+    print(
+        f"\nFull evaluation history (including cached points) in {CACHE_PATH}"
+    )
