@@ -1,2 +1,5 @@
 plots/
 results/
+
+.vscode/
+__pycache__/

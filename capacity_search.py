@@ -23,8 +23,6 @@ deterministic, so gp_minimize is run with noise fixed near zero rather
 than its default noise estimation.
 """
 
-from pathlib import Path
-
 import pandas as pd
 from skopt import gp_minimize
 from skopt.space import Real
